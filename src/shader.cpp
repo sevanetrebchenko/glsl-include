@@ -156,7 +156,7 @@ namespace GLSL {
         // Open the file.
         fileReader.open(filePath);
         if (fileReader.is_open()) {
-            std::string file;
+            std::stringstream file;
 
             // Process file.
             while (!fileReader.eof()) {
@@ -167,24 +167,58 @@ namespace GLSL {
                 // Parse line looking for include tokens.
                 std::stringstream parser(line);
                 std::string token;
+                parser >> token;
 
-                while (parser >> token) {
-                    // Found include.
-                    if (token == "#include") {
+                // Found include, include is the only thing that should be on this line.
+                if (token == "#include") {
+                    // Get filename to include.
+                    parser >> token;
 
+                    if (token.empty()) {
+                        throw std::runtime_error("Empty #include pre-processor directive. Expected <filename> or \"filename\'.");
                     }
+
+                    char beginning = token.front();
+                    char end = token.back();
+
+                    // Using system pre-designated include directory and any custom project include directories.
+                    if (beginning == '<' && end == '>') {
+                        std::string fileLocation = std::string(INCLUDE_DIRECTORY) + token;
+
+                        try {
+                            file << ReadFile(fileLocation);
+                        }
+                        // Include callstack.
+                        catch (std::runtime_error& exception) {
+                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + fileLocation);
+                        }
+                    }
+                    // Using current working directory.
+                    else if (beginning == '"' && end == '"') {
+                        try {
+                            file << ReadFile(token);
+                        }
+                        // Include callstack.
+                        catch (std::runtime_error& exception) {
+                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + token);
+                        }
+                    }
+                    else {
+                        throw std::runtime_error("Formatting mismatch. Expected <filename> or \"filename\'.");
+                    }
+                }
+                else {
+                    // Normal shader line, emplace entire line.
+                    file << line;
                 }
             }
 
+            return file.str();
         }
         else {
             // Could not open file
             throw std::runtime_error("Could not open shader file: \"" + filePath + "\"");
         }
-//
-//        std::string fileContents = fileBuffer.str();
-//        fileBuffer.str(std::string()); // Clear buffer contents.
-//        return std::move(fileContents);
     }
 
     GLenum Shader::ShaderTypeFromString(const std::string &shaderExtension) {
