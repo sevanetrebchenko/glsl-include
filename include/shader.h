@@ -31,10 +31,14 @@ namespace GLSL {
             struct ParsedShaderData {
                 std::vector<std::string> _shaderComponentPaths;
 
-                std::set<std::string> _includeProtection;
-                std::stack<std::string> _includeCoverage;
+                std::set<std::string> _includeGuardInstances;
+                std::stack<std::pair<std::string, int>> _includeGuardStack; // Contains include guard name and line number it appears on.
+
+                std::set<std::string> _pragmaInstances;
+                std::stack<std::pair<std::string, int>> _pragmaStack; // Contains pragma name (filename) and line number it appears on.
+
                 bool _hasVersionInformation;
-                bool _hasCircularDependency;
+                bool _processingExistingInclude;
             };
 
             std::string ReadFile(const std::string& filePath);

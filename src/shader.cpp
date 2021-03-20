@@ -12,7 +12,7 @@ namespace GLSL {
                                                                                                        _shaderID(-1) {
         _parseData._shaderComponentPaths = shaderComponentPaths;
         _parseData._hasVersionInformation = false;
-        _parseData._hasCircularDependency = false;
+        _parseData._processingExistingInclude = false;
 
         CompileShader(GetShaderSources());
     }
@@ -39,25 +39,22 @@ namespace GLSL {
                 shaderComponents.emplace(file, std::make_pair(shaderType, f));
 
                 // Reset.
-                if (!_parseData._includeCoverage.empty()) {
-                    std::string errorMessage = "Not all #define pre-processor directives are properly terminated by #endif statements. Unterminated #define directives: ";
 
-                    for (int i = 0; i < _parseData._includeCoverage.size() - 1; ++i) {
-                        const std::string& includeGuard = _parseData._includeCoverage.top();
-                        errorMessage += includeGuard + ", ";
+                // If there are remaining include guards, there is a mismatch between opening and closing include guard scopes.
+                if (!_parseData._includeGuardStack.empty()) {
+                    std::string errorMessage;
 
-                        _parseData._includeCoverage.pop();
+                    while (!_parseData._includeGuardStack.empty()) {
+                        const std::pair<std::string, int>& includeGuardData = _parseData._includeGuardStack.top();
+                        errorMessage += std::string("Unterminated include guard (#ifndef " + includeGuardData.first + ") on line number: " + std::to_string(includeGuardData.second) + '\n');
+                        _parseData._includeGuardStack.pop();
                     }
-
-                    errorMessage += _parseData._includeCoverage.top() + ".";
-                    _parseData._includeCoverage.pop();
 
                     throw std::runtime_error(errorMessage);
                 }
 
                 _parseData._hasVersionInformation = false;
-                _parseData._hasCircularDependency = false;
-                _parseData._includeProtection.clear();
+                _parseData._processingExistingInclude = false;
             }
             else {
                 throw std::runtime_error("Could not find shader extension on file: \"" + file + "\"");
@@ -203,7 +200,26 @@ namespace GLSL {
                 std::string token;
                 parser >> token;
 
-                if (token == "#ifndef") {
+                // Pragma once.
+                if (token == "#pragma") {
+                    // Ensure following token is 'once' (only pragma that is supported).
+                    parser >> token;
+                    if (token.empty() || token != "once") {
+                        throw std::runtime_error("#pragma pre-processing directive must be followed by 'once'.");
+                    }
+
+                    // Track this file for it to be only be included once.
+                    if (_parseData._pragmaInstances.find(filePath) == _parseData._pragmaInstances.end()) {
+                        _parseData._pragmaInstances.insert(filePath);
+                        _parseData._pragmaStack.push(std::make_pair(filePath, lineNumber));
+                    }
+                    else {
+                        _parseData._processingExistingInclude = true;
+                    }
+                }
+
+                // Include guard.
+                else if (token == "#ifndef") {
                     // Get include guard name.
                     std::string includeGuardName;
                     parser >> includeGuardName;
@@ -213,11 +229,11 @@ namespace GLSL {
                     }
 
                     // Make sure file was not already included in this shader.
-                    if (_parseData._includeProtection.find(includeGuardName) == _parseData._includeProtection.end()) {
-                        _parseData._includeProtection.insert(includeGuardName);
-                        _parseData._includeCoverage.push(includeGuardName);
+                    if (_parseData._includeGuardInstances.find(includeGuardName) == _parseData._includeGuardInstances.end()) {
+                        _parseData._includeGuardInstances.insert(includeGuardName);
+                        _parseData._includeGuardStack.push(std::make_pair(includeGuardName, lineNumber));
 
-                        std::getline(fileReader, line); // Clear line with the define.
+                        std::getline(fileReader, line); // Get line with the define.
 
                         // Get define name.
                         std::stringstream defineParser(line);
@@ -228,17 +244,23 @@ namespace GLSL {
                         }
                     }
                     else {
-                        _parseData._hasCircularDependency = true;
+                        _parseData._processingExistingInclude = true;
                     }
                 }
                 // Clear #endif.
                 else if (token == "#endif") {
                     // Reached the end of this include guard, safe to include file lines once again.
-                    if (_parseData._hasCircularDependency) {
-                        _parseData._hasCircularDependency = false;
+                    if (_parseData._processingExistingInclude) {
+                        _parseData._processingExistingInclude = false;
                     }
                     else {
-                        _parseData._includeCoverage.pop();
+                        if (!_parseData._includeGuardStack.empty()) {
+                            _parseData._includeGuardStack.pop();
+                        }
+                            // If the include guard stack is empty, an endif was pushed without an existing #if / #ifndef.
+                        else {
+                            throw std::runtime_error("#endif pre-processor directive without preexisting #if directive.");
+                        }
                     }
                 }
 
@@ -253,7 +275,7 @@ namespace GLSL {
 
                 // Found include, include is the only thing that should be on this line.
                 else if (token == "#include") {
-                    if (!_parseData._hasCircularDependency) {
+                    if (!_parseData._processingExistingInclude) {
                         // Get filename to include.
                         parser >> token;
 
@@ -295,12 +317,26 @@ namespace GLSL {
                 else {
                     // Normal shader line, emplace entire line.
                     // Need to manually emplace newline.
-                    if (!_parseData._hasCircularDependency) {
+                    if (!_parseData._processingExistingInclude) {
                         file << line << std::endl;
                     }
                 }
 
                 ++lineNumber;
+            }
+
+            // #pragma one preprocessor directive pushes filename.
+            if (_parseData._processingExistingInclude) {
+                const std::pair<std::string, int>& pragmaData = _parseData._pragmaStack.top();
+
+                // Ensure filename is the same as the current processed filename.
+                // This file has been included the maximum one time in this shader unit.
+                if (pragmaData.first == filePath) {
+                    _parseData._processingExistingInclude = false;
+                    _parseData._pragmaStack.pop();
+                }
+
+                // Otherwise, pragma is kept and will be processed as an error later.
             }
 
             return file.str();
