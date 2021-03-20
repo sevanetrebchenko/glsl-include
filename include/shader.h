@@ -33,6 +33,10 @@ namespace GLSL {
             GLenum ShaderTypeFromString(const std::string& shaderExtension);
             GLuint CompileShaderComponent(const std::pair<std::string, std::pair<GLenum, std::string>>& shaderComponent);
 
+
+            template <typename DataType>
+            void SetUniformData(GLuint uniformLocation, DataType value);
+
             std::vector<std::string> _shaderComponentPaths;
             std::unordered_map<std::string, GLint> _uniformLocations;
             std::string _shaderName;
