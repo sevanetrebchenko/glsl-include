@@ -5,6 +5,7 @@
 #version 450 core
 
 #include "assets/shaders/color.vert"
+#include "assets/shaders/helper.glsl"
 
 layout (location = 0) in vec3 vertexPosition;
 

@@ -12,6 +12,7 @@ namespace GLSL {
                                                                                                        _shaderID(-1) {
         _parseData._shaderComponentPaths = shaderComponentPaths;
         _parseData._hasVersionInformation = false;
+        _parseData._hasCircularDependency = false;
 
         CompileShader(GetShaderSources());
     }
@@ -32,7 +33,10 @@ namespace GLSL {
                     throw std::runtime_error("Unknown or unsupported shader of type: \"" + shaderExtension + "\"");
                 }
 
-                shaderComponents.emplace(file, std::make_pair(shaderType, ReadFile(file)));
+                std::string f = ReadFile(file);
+                std::cout << f << std::endl;
+
+                shaderComponents.emplace(file, std::make_pair(shaderType, f));
 
                 // Reset.
                 if (!_parseData._includeCoverage.empty()) {
@@ -52,6 +56,7 @@ namespace GLSL {
                 }
 
                 _parseData._hasVersionInformation = false;
+                _parseData._hasCircularDependency = false;
                 _parseData._includeProtection.clear();
             }
             else {
@@ -188,6 +193,11 @@ namespace GLSL {
                 std::string line;
                 std::getline(fileReader, line);
 
+                // Don't emplace empty lines.
+                if (line.empty()) {
+                    continue;
+                }
+
                 // Parse line looking for include tokens.
                 std::stringstream parser(line);
                 std::string token;
@@ -199,7 +209,7 @@ namespace GLSL {
                     parser >> includeGuardName;
 
                     if (includeGuardName.empty()) {
-                        throw std::runtime_error("Empty #ifndef pre-processor directive. Expected macro.");
+                        throw std::runtime_error("Empty #ifndef pre-processor directive. Expected macro name.");
                     }
 
                     // Make sure file was not already included in this shader.
@@ -218,14 +228,18 @@ namespace GLSL {
                         }
                     }
                     else {
-                        throw std::runtime_error("Circular include.");
+                        _parseData._hasCircularDependency = true;
                     }
                 }
                 // Clear #endif.
                 else if (token == "#endif") {
-                    // const std::string& includeGuard = _parseData._includeCoverage.top();
-                    _parseData._includeCoverage.pop();
-                    continue;
+                    // Reached the end of this include guard, safe to include file lines once again.
+                    if (_parseData._hasCircularDependency) {
+                        _parseData._hasCircularDependency = false;
+                    }
+                    else {
+                        _parseData._includeCoverage.pop();
+                    }
                 }
 
                 // Found shader version number, version number is the only thing on this line.
@@ -239,47 +253,51 @@ namespace GLSL {
 
                 // Found include, include is the only thing that should be on this line.
                 else if (token == "#include") {
-                    // Get filename to include.
-                    parser >> token;
+                    if (!_parseData._hasCircularDependency) {
+                        // Get filename to include.
+                        parser >> token;
 
-                    if (token.empty()) {
-                        throw std::runtime_error("Empty #include pre-processor directive. Expected <filename> or \"filename\'.");
-                    }
+                        if (token.empty()) {
+                            throw std::runtime_error("Empty #include pre-processor directive. Expected <filename> or \"filename\'.");
+                        }
 
-                    char beginning = token.front();
-                    char end = token.back();
-                    std::string filename = token.substr(1, token.size() - 2);
+                        char beginning = token.front();
+                        char end = token.back();
+                        std::string filename = token.substr(1, token.size() - 2);
 
-                    // Using system pre-designated include directory and any custom project include directories.
-                    if (beginning == '<' && end == '>') {
-                        std::string fileLocation = std::string(INCLUDE_DIRECTORY) + filename;
+                        // Using system pre-designated include directory and any custom project include directories.
+                        if (beginning == '<' && end == '>') {
+                            std::string fileLocation = std::string(INCLUDE_DIRECTORY) + filename;
 
-                        try {
-                            file << ReadFile(fileLocation);
+                            try {
+                                file << ReadFile(fileLocation);
+                            }
+                                // Include callstack.
+                            catch (std::runtime_error& exception) {
+                                throw std::runtime_error(std::string(exception.what()) + " Included from: " + filePath + ", line number: " + std::to_string(lineNumber));
+                            }
                         }
-                        // Include callstack.
-                        catch (std::runtime_error& exception) {
-                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + filePath + ", line number: " + std::to_string(lineNumber));
+                            // Using current working directory.
+                        else if (beginning == '"' && end == '"') {
+                            try {
+                                file << ReadFile(filename);
+                            }
+                                // Include callstack.
+                            catch (std::runtime_error& exception) {
+                                throw std::runtime_error(std::string(exception.what()) + " Included from: " + filePath + ", line number: " + std::to_string(lineNumber));
+                            }
                         }
-                    }
-                    // Using current working directory.
-                    else if (beginning == '"' && end == '"') {
-                        try {
-                            file << ReadFile(filename);
+                        else {
+                            throw std::runtime_error("Formatting mismatch. Expected <filename> or \"filename\'.");
                         }
-                        // Include callstack.
-                        catch (std::runtime_error& exception) {
-                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + filePath + ", line number: " + std::to_string(lineNumber));
-                        }
-                    }
-                    else {
-                        throw std::runtime_error("Formatting mismatch. Expected <filename> or \"filename\'.");
                     }
                 }
                 else {
                     // Normal shader line, emplace entire line.
                     // Need to manually emplace newline.
-                    file << line << std::endl;
+                    if (!_parseData._hasCircularDependency) {
+                        file << line << std::endl;
+                    }
                 }
 
                 ++lineNumber;
