@@ -2,8 +2,8 @@
 #ifndef GLSL_INCLUDE_SHADER_TPP
 #define GLSL_INCLUDE_SHADER_TPP
 
-#include <lib/glm/glm/glm.hpp>
-#include <lib/glm/glm/gtc/type_ptr.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace GLSL {
 

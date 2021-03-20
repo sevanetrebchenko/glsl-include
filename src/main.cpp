@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtx/transform.hpp>
+
 #include <shader.h>
 
 int main() {
@@ -58,14 +59,12 @@ int main() {
     }
 
     // Camera properties.
-    glm::vec3 cameraEyePosition(0.0f, 1.0f, 5.0f);
+    glm::vec3 cameraEyePosition(0.0f, 2.0f, 4.0f);
     glm::vec3 upVector(0.0f, 1.0f, 0.0f);
-    glm::vec3 lookAtDirection(0.0f, 0.0f, -1.0f); // Camera looks along the -z axis.
 
-    glm::mat4 cameraViewMatrix = glm::lookAt(cameraEyePosition, cameraEyePosition + lookAtDirection, upVector);
+    glm::mat4 cameraViewMatrix = glm::lookAt(cameraEyePosition, -cameraEyePosition, upVector);
     // Parameters: fov, aspect ratio, near plane distance, far plane distance
     glm::mat4 cameraPerspectiveMatrix = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f);
-
     glm::mat4 cameraMatrix = cameraPerspectiveMatrix * cameraViewMatrix;
 
     // Initialize cube mesh.
@@ -119,16 +118,34 @@ int main() {
 
     glBindVertexArray(0);
 
+    // Cube transform.
+    glm::mat4 translation = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f));
+    glm::mat4 scale = glm::scale(glm::vec3(1.0f));
+
+    float rotationAngle = 0.0f;
+    float previousFrameTime = 0;
+    float dt, currentFrameTime;
+
     // Main loop.
     while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS && glfwWindowShouldClose(window) == 0) {
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        // dt calculations.
+        currentFrameTime = (float)glfwGetTime();
+        dt = currentFrameTime - previousFrameTime;
+        previousFrameTime = currentFrameTime;
+
+        // Update cube transform.
+        rotationAngle += 20.0f * dt;
+        glm::mat4 rotation = glm::rotate(glm::radians(rotationAngle), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 modelMatrix = translation * rotation * scale;
+
         // Pass shader uniforms.
         singleColorShader->Bind();
-        singleColorShader->SetUniform("modelTransform", glm::mat4(1.0f));
+        singleColorShader->SetUniform("modelTransform", modelMatrix);
         singleColorShader->SetUniform("cameraTransform", cameraMatrix);
-        singleColorShader->SetUniform("surfaceColor", glm::vec3(1.0f));
+        singleColorShader->SetUniform("surfaceColor", glm::vec3(1.0f, 0.45f, 0.0f));
 
         // Render cube.
         glBindVertexArray(vao);

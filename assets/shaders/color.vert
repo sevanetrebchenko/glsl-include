@@ -1,5 +1,4 @@
 #version 450 core
-#pragma once
 
 #include "assets/shaders/helper.glsl"
 
