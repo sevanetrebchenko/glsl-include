@@ -43,10 +43,6 @@ int main() {
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
 
-    std::cout << "Vendor: " << (const char*)glGetString(GL_VENDOR) << std::endl;
-    std::cout << "Renderer: " << (const char*)glGetString(GL_RENDERER) << std::endl;
-    std::cout << "OpenGL Version: " << (const char*)glGetString(GL_VERSION) << std::endl;
-
     // Initialize shader.
     GLSL::Shader* singleColorShader;
 
@@ -128,7 +124,7 @@ int main() {
 
     // Main loop.
     while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS && glfwWindowShouldClose(window) == 0) {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClearColor(0.0f, 20.0f / 255.0f, 40.0f / 255.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // dt calculations.

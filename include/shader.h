@@ -7,6 +7,8 @@
 #include <initializer_list>
 #include <unordered_map>
 #include <vector>
+#include <set>
+#include <stack>
 
 namespace GLSL {
 
@@ -26,6 +28,14 @@ namespace GLSL {
             void SetUniform(const std::string& uniformName, DataType value);
 
         private:
+            struct ParsedShaderData {
+                std::vector<std::string> _shaderComponentPaths;
+
+                std::set<std::string> _includeProtection;
+                std::stack<std::string> _includeCoverage;
+                bool _hasVersionInformation;
+            };
+
             std::string ReadFile(const std::string& filePath);
             std::unordered_map<std::string, std::pair<GLenum, std::string>> GetShaderSources();
             void CompileShader(const std::unordered_map<std::string, std::pair<GLenum, std::string>>& shaderComponents);
@@ -33,14 +43,15 @@ namespace GLSL {
             GLenum ShaderTypeFromString(const std::string& shaderExtension);
             GLuint CompileShaderComponent(const std::pair<std::string, std::pair<GLenum, std::string>>& shaderComponent);
 
-
             template <typename DataType>
             void SetUniformData(GLuint uniformLocation, DataType value);
 
-            std::vector<std::string> _shaderComponentPaths;
+            // Shader data.
             std::unordered_map<std::string, GLint> _uniformLocations;
             std::string _shaderName;
             GLuint _shaderID;
+
+            ParsedShaderData _parseData;
     };
 
 }

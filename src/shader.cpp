@@ -4,12 +4,15 @@
 #include <stdexcept>
 #include <sstream>
 #include <fstream>
+#include <iostream>
 
 namespace GLSL {
 
     Shader::Shader(std::string name, const std::initializer_list<std::string>& shaderComponentPaths) : _shaderName(std::move(name)),
-                                                                                                       _shaderComponentPaths(shaderComponentPaths),
                                                                                                        _shaderID(-1) {
+        _parseData._shaderComponentPaths = shaderComponentPaths;
+        _parseData._hasVersionInformation = false;
+
         CompileShader(GetShaderSources());
     }
 
@@ -17,7 +20,7 @@ namespace GLSL {
         std::unordered_map<std::string, std::pair<GLenum, std::string>> shaderComponents;
 
         // Get shader types.
-        std::for_each(_shaderComponentPaths.begin(), _shaderComponentPaths.end(), [&](const std::string& file) {
+        std::for_each(_parseData._shaderComponentPaths.begin(), _parseData._shaderComponentPaths.end(), [&](const std::string& file) {
             std::size_t dotPosition = file.find_last_of('.');
 
             // Found extension.
@@ -30,6 +33,26 @@ namespace GLSL {
                 }
 
                 shaderComponents.emplace(file, std::make_pair(shaderType, ReadFile(file)));
+
+                // Reset.
+                if (!_parseData._includeCoverage.empty()) {
+                    std::string errorMessage = "Not all #define pre-processor directives are properly terminated by #endif statements. Unterminated #define directives: ";
+
+                    for (int i = 0; i < _parseData._includeCoverage.size() - 1; ++i) {
+                        const std::string& includeGuard = _parseData._includeCoverage.top();
+                        errorMessage += includeGuard + ", ";
+
+                        _parseData._includeCoverage.pop();
+                    }
+
+                    errorMessage += _parseData._includeCoverage.top() + ".";
+                    _parseData._includeCoverage.pop();
+
+                    throw std::runtime_error(errorMessage);
+                }
+
+                _parseData._hasVersionInformation = false;
+                _parseData._includeProtection.clear();
             }
             else {
                 throw std::runtime_error("Could not find shader extension on file: \"" + file + "\"");
@@ -170,8 +193,52 @@ namespace GLSL {
                 std::string token;
                 parser >> token;
 
+                if (token == "#ifndef") {
+                    // Get include guard name.
+                    std::string includeGuardName;
+                    parser >> includeGuardName;
+
+                    if (includeGuardName.empty()) {
+                        throw std::runtime_error("Empty #ifndef pre-processor directive. Expected macro.");
+                    }
+
+                    // Make sure file was not already included in this shader.
+                    if (_parseData._includeProtection.find(includeGuardName) == _parseData._includeProtection.end()) {
+                        _parseData._includeProtection.insert(includeGuardName);
+                        _parseData._includeCoverage.push(includeGuardName);
+
+                        std::getline(fileReader, line); // Clear line with the define.
+
+                        // Get define name.
+                        std::stringstream defineParser(line);
+                        defineParser >> token >> token;
+
+                        if (token != includeGuardName) {
+                            std::cout << "Warning: include guard name (" << includeGuardName << ") does not match following macro definition (" << token << ")." << std::endl;
+                        }
+                    }
+                    else {
+                        throw std::runtime_error("Circular include.");
+                    }
+                }
+                // Clear #endif.
+                else if (token == "#endif") {
+                    // const std::string& includeGuard = _parseData._includeCoverage.top();
+                    _parseData._includeCoverage.pop();
+                    continue;
+                }
+
+                // Found shader version number, version number is the only thing on this line.
+                else if (token == "#version") {
+                    // Skip additional shader versions if they appear. First version is the version of the shader.
+                    if (!_parseData._hasVersionInformation) {
+                        file << line << std::endl;
+                        _parseData._hasVersionInformation = true;
+                    }
+                }
+
                 // Found include, include is the only thing that should be on this line.
-                if (token == "#include") {
+                else if (token == "#include") {
                     // Get filename to include.
                     parser >> token;
 
