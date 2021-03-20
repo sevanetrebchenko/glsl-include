@@ -9,7 +9,7 @@ add_executable(glsl-include ${CORE_SOURCE_FILES})
 target_include_directories(glsl-include PUBLIC "${PROJECT_SOURCE_DIR}/include/")
 target_compile_definitions(glsl-include
         PRIVATE INCLUDE_DIRECTORY="${PROJECT_SOURCE_DIR}/include/"
-        PRIVATE OUTPUT_DIRECTORY="${PROJECT_SOURCE_DIR}/data/runtime"
+        # PRIVATE OUTPUT_DIRECTORY="${PROJECT_SOURCE_DIR}/data/runtime"
         )
 
 # DEPENDENCIES

@@ -18,7 +18,7 @@ namespace GLSL {
             void Bind() const;
             void Unbind() const;
 
-            void Recompile();
+//            void Recompile();
 
             [[nodiscard]] const std::string& GetName() const;
 

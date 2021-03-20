@@ -39,9 +39,9 @@ namespace GLSL {
         return std::move(shaderComponents);
     }
 
-    void Shader::Recompile() {
-        CompileShader(GetShaderSources());
-    }
+//    void Shader::Recompile() {
+//        CompileShader(GetShaderSources());
+//    }
 
     void Shader::CompileShader(const std::unordered_map<std::string, std::pair<GLenum, std::string>> &shaderComponents) {
         GLuint shaderProgram = glCreateProgram();
@@ -157,6 +157,7 @@ namespace GLSL {
         fileReader.open(filePath);
         if (fileReader.is_open()) {
             std::stringstream file;
+            int lineNumber = 1;
 
             // Process file.
             while (!fileReader.eof()) {
@@ -180,27 +181,28 @@ namespace GLSL {
 
                     char beginning = token.front();
                     char end = token.back();
+                    std::string filename = token.substr(1, token.size() - 2);
 
                     // Using system pre-designated include directory and any custom project include directories.
                     if (beginning == '<' && end == '>') {
-                        std::string fileLocation = std::string(INCLUDE_DIRECTORY) + token;
+                        std::string fileLocation = std::string(INCLUDE_DIRECTORY) + filename;
 
                         try {
                             file << ReadFile(fileLocation);
                         }
                         // Include callstack.
                         catch (std::runtime_error& exception) {
-                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + fileLocation);
+                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + filePath + ", line number: " + std::to_string(lineNumber));
                         }
                     }
                     // Using current working directory.
                     else if (beginning == '"' && end == '"') {
                         try {
-                            file << ReadFile(token);
+                            file << ReadFile(filename);
                         }
                         // Include callstack.
                         catch (std::runtime_error& exception) {
-                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + token);
+                            throw std::runtime_error(std::string(exception.what()) + " Included from: " + filePath + ", line number: " + std::to_string(lineNumber));
                         }
                     }
                     else {
@@ -209,8 +211,11 @@ namespace GLSL {
                 }
                 else {
                     // Normal shader line, emplace entire line.
-                    file << line;
+                    // Need to manually emplace newline.
+                    file << line << std::endl;
                 }
+
+                ++lineNumber;
             }
 
             return file.str();
