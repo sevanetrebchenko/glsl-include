@@ -2,15 +2,15 @@
 set(CORE_SOURCE_FILES
         "${PROJECT_SOURCE_DIR}/src/main.cpp"
         "${PROJECT_SOURCE_DIR}/src/shader.cpp"
-        )
+    )
 
 add_executable(glsl-include ${CORE_SOURCE_FILES})
 
 target_include_directories(glsl-include PUBLIC "${CMAKE_SOURCE_DIR}/include/")
 target_compile_definitions(glsl-include
         PRIVATE INCLUDE_DIRECTORY="${PROJECT_SOURCE_DIR}/include/"
-        # PRIVATE OUTPUT_DIRECTORY="${PROJECT_SOURCE_DIR}/data/runtime"
-        )
+        PRIVATE OUTPUT_DIRECTORY="${PROJECT_SOURCE_DIR}/data/runtime/"
+    )
 
 # DEPENDENCIES
 # OpenGL

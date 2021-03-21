@@ -1,13 +1,13 @@
 
-#ifndef COLOR_VERT
-#define COLOR_VERT
+//#ifndef COLOR_VERT
+//#define COLOR_VERT
 
-#pragma once
+//#pragma
 
 #version 450 core
-
-#include "assets/shaders/color.vert"
-#include "assets/shaders/helper.glsl"
+//
+//#include "assets/shaders/color.vert"
+//#include "assets/shaders/helper.glsl"
 
 layout (location = 0) in vec3 vertexPosition;
 
@@ -15,8 +15,9 @@ uniform mat4 modelTransform;
 uniform mat4 cameraTransform;
 
 void main() {
-    gl_Position = cameraTransform * modelTransform * vec4(vertexPosition, 1.0);
+    gl_Position = cameraTransform /*Remove this*/* modelTransform * vec4(vertexPosition, 1.0);
 }
 
 
-#endif //COLOR_VERT
+//#endif //COLOR_VERT
+

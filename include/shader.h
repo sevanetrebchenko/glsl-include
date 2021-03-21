@@ -42,6 +42,7 @@ namespace GLSL {
             };
 
             std::string ReadFile(const std::string& filePath);
+            std::string CondenseFile(std::string file) const;
             std::unordered_map<std::string, std::pair<GLenum, std::string>> GetShaderSources();
             void CompileShader(const std::unordered_map<std::string, std::pair<GLenum, std::string>>& shaderComponents);
             GLuint CompileShaderComponent(const std::pair<std::string, std::pair<GLenum, std::string>>& shaderComponent);
@@ -63,5 +64,6 @@ namespace GLSL {
 }
 
 #include <shader.tpp>
+
 
 #endif //GLSL_INCLUDE_SHADER_H

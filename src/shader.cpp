@@ -5,6 +5,7 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 
 namespace GLSL {
 
@@ -33,10 +34,56 @@ namespace GLSL {
                     throw std::runtime_error("Unknown or unsupported shader of type: \"" + shaderExtension + "\"");
                 }
 
-                std::string f = ReadFile(file);
-                std::cout << f << std::endl;
+                std::string shaderFile = CondenseFile(ReadFile(file));
 
-                shaderComponents.emplace(file, std::make_pair(shaderType, f));
+                // Write parsed shader to output directory.
+                #ifdef OUTPUT_DIRECTORY
+                    std::ofstream outputStream;
+
+                    // Get only the asset name.
+                    std::string assetName;
+
+                    std::size_t winSlashPosition = file.find_last_of('\\');
+                    std::size_t linSlashPosition = file.find_last_of('/');
+
+                    if (winSlashPosition == std::string::npos) {
+                        if (linSlashPosition == std::string::npos) {
+                            // No slashes, filename is the asset name.
+                            assetName = file;
+                        }
+                        else {
+                            // No windows-style slashes, use linux-style.
+                            assetName = file.substr(linSlashPosition + 1);
+                        }
+                    }
+                    else {
+                        if (linSlashPosition == std::string::npos) {
+                            // No linux-style slashes, use windows-style.
+                            assetName = file.substr(winSlashPosition + 1);
+                        }
+                        else {
+                            // Both types of slashes, pick the furthest position.
+                            assetName = file.substr(std::max(winSlashPosition, linSlashPosition) + 1);
+                        }
+                    }
+
+                    std::string outputDirectory = std::string(OUTPUT_DIRECTORY);
+                    char slash = outputDirectory.back();
+
+                    if (slash != '\\' && slash != '/') {
+                        #ifdef _WIN32
+                            outputDirectory += '\\';
+                        #else
+                            outputDirectory += '/';
+                        #endif
+                    }
+
+                    outputStream.open(outputDirectory + assetName);
+                    outputStream << shaderFile;
+                    outputStream.close();
+                #endif
+
+                shaderComponents.emplace(file, std::make_pair(shaderType, shaderFile));
 
                 // Reset.
 
@@ -189,11 +236,7 @@ namespace GLSL {
                 // Get line.
                 std::string line;
                 std::getline(fileReader, line);
-
-                // Don't emplace empty lines.
-                if (line.empty()) {
-                    continue;
-                }
+                std::string lineNumberString = std::to_string(lineNumber);
 
                 // Parse line looking for include tokens.
                 std::stringstream parser(line);
@@ -202,10 +245,17 @@ namespace GLSL {
 
                 // Pragma once.
                 if (token == "#pragma") {
+                    std::string once;
+
                     // Ensure following token is 'once' (only pragma that is supported).
                     parser >> token;
                     if (token.empty() || token != "once") {
-                        throw std::runtime_error("#pragma pre-processing directive must be followed by 'once'.");
+                        std::stringstream errorMessageBuilder;
+
+                        errorMessageBuilder << "In file '" << filePath << "' on line " << lineNumberString << ": error: #pragma pre-processing directive must be followed by 'once'." << std::endl;
+                        errorMessageBuilder << std::setw(4) << lineNumber << " |    " << line << std::endl;
+                        errorMessageBuilder << std::setw(4) << ' ' << " |    " << "        ^" << std::endl;
+                        throw std::runtime_error(errorMessageBuilder.str());
                     }
 
                     // Track this file for it to be only be included once.
@@ -259,7 +309,12 @@ namespace GLSL {
                         }
                             // If the include guard stack is empty, an endif was pushed without an existing #if / #ifndef.
                         else {
-                            throw std::runtime_error("#endif pre-processor directive without preexisting #if directive.");
+                            std::stringstream errorMessageBuilder;
+
+                            errorMessageBuilder << "In file '" << filePath << "' on line " << lineNumberString << ": error: #endif pre-processor directive without preexisting #if / #ifndef directive." << std::endl;
+                            errorMessageBuilder << std::setw(4) << lineNumber << " |    " << line << std::endl;
+                            errorMessageBuilder << std::setw(4) << ' ' << " |    " << '^' << std::endl;
+                            throw std::runtime_error(errorMessageBuilder.str());
                         }
                     }
                 }
@@ -345,6 +400,85 @@ namespace GLSL {
             // Could not open file
             throw std::runtime_error("Could not open shader file: \"" + filePath + "\"");
         }
+    }
+
+    std::string Shader::CondenseFile(std::string file) const {
+        std::size_t previousItPosition = 0;
+        bool previousIsNL = false;
+        bool previousIsSlash = false;
+
+        while (previousItPosition != file.size()) {
+            // Clear newline if file begins with one.
+            if (file.front() == '\n') {
+                file.erase(file.begin());
+                continue;
+            }
+
+            for (auto it = file.begin() + previousItPosition; it != file.end(); ++it, ++previousItPosition) {
+                char character = *it;
+
+                if (it == file.end() - 1) {
+                    continue;
+                }
+
+                // Newline processing.
+                if (character == '\n') {
+                    // Remove duplicate newlines.
+                    if (previousIsNL) {
+                        file.erase(it);
+                        break;
+                    }
+                    else {
+                        previousIsNL = true;
+                    }
+                }
+                else {
+                    previousIsNL = false;
+                }
+
+                // Full-line comment processing.
+                if (character == '/') {
+                    if (previousIsSlash) {
+                        std::size_t commentStart = previousItPosition - 1;
+                        std::size_t commentEnd = previousItPosition;
+
+                        while (file[commentEnd] != '\n') {
+                            ++commentEnd;
+                        }
+
+                        file.erase(file.begin() + commentStart, file.begin() + commentEnd);
+
+                        previousItPosition -= 1; // Reset iterator position to where the comment started.
+                        previousIsNL = true;
+                        previousIsSlash = false;
+                        break;
+                    }
+                    else {
+                        previousIsSlash = true;
+                    }
+                }
+                // Inline comment processing.
+                else if (character == '*') {
+                    if (previousIsSlash) {
+                        std::size_t commentStart = previousItPosition - 1;
+                        std::size_t commentEnd = previousItPosition;
+
+                        // Find */ to determine comment ending.
+                        while (file[commentEnd] != '/' || file[commentEnd - 1] != '*') {
+                            ++commentEnd;
+                        }
+
+                        file.erase(file.begin() + commentStart, file.begin() + commentEnd + 1);
+                        previousItPosition -= 1; // Reset iterator position to where the comment started.
+                    }
+                }
+                else {
+                    previousIsSlash = false;
+                }
+            }
+        }
+
+        return file;
     }
 
     GLenum Shader::ShaderTypeFromString(const std::string &shaderExtension) {
