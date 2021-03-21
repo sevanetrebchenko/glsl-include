@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <iomanip>
+#include <filesystem>
 
 namespace GLSL {
 
@@ -76,6 +77,11 @@ namespace GLSL {
                         #else
                             outputDirectory += '/';
                         #endif
+                    }
+
+                    // Make output directory if it doesn't exist.
+                    if (!std::filesystem::exists(outputDirectory)) {
+                        std::filesystem::create_directories(outputDirectory);
                     }
 
                     outputStream.open(outputDirectory + assetName);
