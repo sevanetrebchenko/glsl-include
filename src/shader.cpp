@@ -242,6 +242,11 @@ namespace GLSL {
                 // Get line.
                 std::string line;
                 std::getline(fileReader, line);
+                line += '\n'; // getline consumes the newline.
+
+                EraseComments(line);
+                EraseNewlines(line);
+
                 std::string lineNumberString = std::to_string(lineNumber);
 
                 // Parse line looking for include tokens.
@@ -281,7 +286,14 @@ namespace GLSL {
                     parser >> includeGuardName;
 
                     if (includeGuardName.empty()) {
-                        throw std::runtime_error("Empty #ifndef pre-processor directive. Expected macro name.");
+                        std::stringstream errorMessageBuilder;
+
+                        errorMessageBuilder << "In file '" << filePath << "' on line " << lineNumberString << ": error: empty #ifndef pre-processor directive. Expected macro name." << std::endl;
+                        errorMessageBuilder << std::setw(4) << lineNumber << " |    " << line << std::endl;
+                        errorMessageBuilder << std::setw(4) << ' ' << " |    " << "        ^" << std::endl;
+                        throw std::runtime_error(errorMessageBuilder.str());
+
+                        throw std::runtime_error("empty #ifndef pre-processor directive. Expected macro name.");
                     }
 
                     // Make sure file was not already included in this shader.
@@ -409,81 +421,8 @@ namespace GLSL {
     }
 
     std::string Shader::CondenseFile(std::string file) const {
-        std::size_t previousItPosition = 0;
-        bool previousIsNL = false;
-        bool previousIsSlash = false;
-
-        while (previousItPosition != file.size()) {
-            // Clear newline if file begins with one.
-            if (file.front() == '\n') {
-                file.erase(file.begin());
-                continue;
-            }
-
-            for (auto it = file.begin() + previousItPosition; it != file.end(); ++it, ++previousItPosition) {
-                char character = *it;
-
-                if (it == file.end() - 1) {
-                    continue;
-                }
-
-                // Newline processing.
-                if (character == '\n') {
-                    // Remove duplicate newlines.
-                    if (previousIsNL) {
-                        file.erase(it);
-                        break;
-                    }
-                    else {
-                        previousIsNL = true;
-                    }
-                }
-                else {
-                    previousIsNL = false;
-                }
-
-                // Full-line comment processing.
-                if (character == '/') {
-                    if (previousIsSlash) {
-                        std::size_t commentStart = previousItPosition - 1;
-                        std::size_t commentEnd = previousItPosition;
-
-                        while (file[commentEnd] != '\n') {
-                            ++commentEnd;
-                        }
-
-                        file.erase(file.begin() + commentStart, file.begin() + commentEnd);
-
-                        previousItPosition -= 1; // Reset iterator position to where the comment started.
-                        previousIsNL = true;
-                        previousIsSlash = false;
-                        break;
-                    }
-                    else {
-                        previousIsSlash = true;
-                    }
-                }
-                // Inline comment processing.
-                else if (character == '*') {
-                    if (previousIsSlash) {
-                        std::size_t commentStart = previousItPosition - 1;
-                        std::size_t commentEnd = previousItPosition;
-
-                        // Find */ to determine comment ending.
-                        while (file[commentEnd] != '/' || file[commentEnd - 1] != '*') {
-                            ++commentEnd;
-                        }
-
-                        file.erase(file.begin() + commentStart, file.begin() + commentEnd + 1);
-                        previousItPosition -= 1; // Reset iterator position to where the comment started.
-                    }
-                }
-                else {
-                    previousIsSlash = false;
-                }
-            }
-        }
-
+        EraseComments(file);
+        EraseNewlines(file);
         return file;
     }
 
@@ -515,6 +454,88 @@ namespace GLSL {
 
     const std::string &Shader::GetName() const {
         return _shaderName;
+    }
+
+    void Shader::EraseComments(std::string &line) const {
+        std::size_t previousItPosition = 0;
+        bool previousIsSlash = false;
+
+        while (previousItPosition != line.size()) {
+            for (auto it = line.begin() + previousItPosition; it != line.end(); ++it, ++previousItPosition) {
+                char character = *it;
+
+                // Full-line comment processing.
+                if (character == '/') {
+                    if (previousIsSlash) {
+                        std::size_t commentStart = previousItPosition - 1;
+                        std::size_t commentEnd = previousItPosition;
+
+                        while (line[commentEnd] != '\n') {
+                            ++commentEnd;
+                        }
+
+                        line.erase(line.begin() + commentStart, line.begin() + commentEnd);
+
+                        previousItPosition -= 1; // Reset iterator position to where the comment started.
+                        previousIsSlash = false;
+                        break;
+                    }
+                    else {
+                        previousIsSlash = true;
+                    }
+                }
+                // Inline comment processing.
+                else if (character == '*') {
+                    if (previousIsSlash) {
+                        std::size_t commentStart = previousItPosition - 1;
+                        std::size_t commentEnd = previousItPosition;
+
+                        // Find */ to determine comment ending.
+                        while (line[commentEnd] != '/' || line[commentEnd - 1] != '*') {
+                            ++commentEnd;
+                        }
+
+                        line.erase(line.begin() + commentStart, line.begin() + commentEnd + 1);
+                        previousItPosition -= 1; // Reset iterator position to where the comment started.
+                    }
+                }
+                else {
+                    previousIsSlash = false;
+                }
+            }
+        }
+    }
+
+    void Shader::EraseNewlines(std::string &line) const {
+        std::size_t previousItPosition = 0;
+        bool previousIsNL = false;
+
+        while (previousItPosition != line.size()) {
+            // Clear newline if file begins with one.
+            if (line.front() == '\n') {
+                line.erase(line.begin());
+                continue;
+            }
+
+            for (auto it = line.begin() + previousItPosition; it != line.end(); ++it, ++previousItPosition) {
+                char character = *it;
+
+                // Newline processing.
+                if (character == '\n') {
+                    // Remove duplicate newlines.
+                    if (previousIsNL) {
+                        line.erase(it);
+                        break;
+                    }
+                    else {
+                        previousIsNL = true;
+                    }
+                }
+                else {
+                    previousIsNL = false;
+                }
+            }
+        }
     }
 
 }

@@ -1,5 +1,5 @@
 
-//#ifndef COLOR_VERT
+#ifndef /*JE::P*/ HELLO
 //#define COLOR_VERT
 
 //#pragma

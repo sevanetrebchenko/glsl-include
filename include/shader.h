@@ -50,6 +50,9 @@ namespace GLSL {
             std::string ShaderTypeToString(GLenum shaderType) const;
             GLenum ShaderTypeFromString(const std::string& shaderExtension);
 
+            void EraseComments(std::string& line) const;
+            void EraseNewlines(std::string& line) const;
+
             template <typename DataType>
             void SetUniformData(GLuint uniformLocation, DataType value);
 
