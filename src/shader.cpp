@@ -36,7 +36,7 @@ namespace GLSL {
                     throw std::runtime_error("Unknown or unsupported shader of type: \"" + shaderExtension + "\"");
                 }
 
-                std::string shaderFile = ReadFile(filepath);
+                std::string shaderFile = ProcessFile(filepath);
                 EraseNewlines(shaderFile, false); // Keep last newline to finish file with newline.
 
                 // Write parsed shader to output directory only if it exists.
@@ -54,7 +54,7 @@ namespace GLSL {
 
                 shaderComponents.emplace(filepath, std::make_pair(shaderType, shaderFile));
 
-                // Reset.
+                // Check for unterminated include guards.
                 for (IncludeGuard& includeGuard : _parseData._includeGuards) {
                     // Found unterminated include guard.
                     if (includeGuard._endifLineNumber == -1) {
@@ -173,7 +173,7 @@ namespace GLSL {
     }
 
     std::string Shader::ShaderTypeToString(GLenum shaderType) const {
-        switch(shaderType) {
+        switch (shaderType) {
             case GL_FRAGMENT_SHADER:
                 return "FRAGMENT";
             case GL_VERTEX_SHADER:
@@ -185,11 +185,11 @@ namespace GLSL {
         }
     }
 
-    std::string Shader::ReadFile(const std::string &filePath) {
+    std::string Shader::ProcessFile(const std::string &filepath) {
         std::ifstream fileReader;
 
         // Open the file.
-        fileReader.open(filePath);
+        fileReader.open(filepath);
         if (fileReader.is_open()) {
             std::stringstream file;
             int lineNumber = 1;
@@ -206,20 +206,19 @@ namespace GLSL {
 
                 // Pragma once.
                 if (token == "#pragma") {
-                    std::string once;
-
                     // Ensure following token is 'once' (only pragma that is supported).
                     parser >> token;
                     if (token.empty() || token != "once") {
-                        ThrowFormattedError(filePath, line, lineNumberString, "#pragma pre-processing directive must be followed by 'once'.", 8);
+                        ThrowFormattedError(filepath, line, lineNumberString, "#pragma pre-processing directive must be followed by 'once'.", 8);
                     }
 
                     // Track this file for it to be only be included once.
-                    if (_parseData._pragmaInstances.find(filePath) == _parseData._pragmaInstances.end()) {
-                        _parseData._pragmaInstances.insert(filePath);
-                        _parseData._pragmaStack.push(std::make_pair(filePath, lineNumber));
+                    if (_parseData._pragmaInstances.find(filepath) == _parseData._pragmaInstances.end()) {
+                        _parseData._pragmaInstances.insert(filepath);
+                        _parseData._pragmaStack.push(std::make_pair(filepath, lineNumber));
                     }
                     else {
+                        // File has already been included.
                         _parseData._processingExistingInclude = true;
                     }
                 }
@@ -231,7 +230,7 @@ namespace GLSL {
 
                     // #ifndef needs macro as name, otherwise throw an error.
                     if (includeGuardName.empty()) {
-                        ThrowFormattedError(filePath, line, lineNumberString, "Empty #ifndef pre-processor directive. Expected macro name.", 8);
+                        ThrowFormattedError(filepath, line, lineNumberString, "Empty #ifndef pre-processor directive. Expected macro name.", 8);
                     }
 
                     // Make sure include guard was not already found.
@@ -241,7 +240,7 @@ namespace GLSL {
                         _parseData._includeGuards.emplace_back();
 
                         IncludeGuard& includeGuard = _parseData._includeGuards.back();
-                        includeGuard._includeGuardFile = filePath;
+                        includeGuard._includeGuardFile = filepath;
                         includeGuard._includeGuardName = includeGuardName;
                         includeGuard._includeGuardLine = line;
                         includeGuard._includeGuardLineNumber = lineNumber;
@@ -267,7 +266,7 @@ namespace GLSL {
                         parser >> defineName;
 
                         if (defineName.empty()) {
-                            ThrowFormattedError(filePath, line, lineNumberString, "Empty #define pre-processor directive. Expected identifier.", 8);
+                            ThrowFormattedError(filepath, line, lineNumberString, "Empty #define pre-processor directive. Expected identifier.", 8);
                         }
 
                         auto includeGuardIt = _parseData._includeGuardInstances.find(defineName);
@@ -287,7 +286,7 @@ namespace GLSL {
                             }
                             // Shader version information must be the first compiled line of shader code.
                             else {
-                                ThrowFormattedError(filePath, line, lineNumberString, "Version directive must be first statement and may not be repeated.", 0);
+                                ThrowFormattedError(filepath, line, lineNumberString, "Version directive must be first statement and may not be repeated.", 0);
                             }
                         }
                     }
@@ -314,7 +313,7 @@ namespace GLSL {
 
                         // If the include guard stack is empty, an endif was pushed without an existing #if / #ifndef.
                         if (!found) {
-                            ThrowFormattedError(filePath, line, lineNumberString, "#endif pre-processor directive without preexisting #if / #ifndef directive.", 0);
+                            ThrowFormattedError(filepath, line, lineNumberString, "#endif pre-processor directive without preexisting #if / #ifndef directive.", 0);
                         }
                     }
                 }
@@ -336,7 +335,7 @@ namespace GLSL {
                         parser >> includeName;
 
                         if (includeName.empty()) {
-                            ThrowFormattedError(filePath, line, lineNumberString, "Empty #include pre-processor directive. Expected <filename> or \"filename\".", 9);
+                            ThrowFormattedError(filepath, line, lineNumberString, "Empty #include pre-processor directive. Expected <filename> or \"filename\".", 9);
                         }
 
                         char beginning = includeName.front();
@@ -348,25 +347,25 @@ namespace GLSL {
                             std::string fileLocation = std::string(INCLUDE_DIRECTORY) + filename;
 
                             try {
-                                file << ReadFile(fileLocation);
+                                file << ProcessFile(fileLocation);
                             }
                                 // Include callstack.
                             catch (std::runtime_error& exception) {
-                                throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + filePath + "', line number: " + std::to_string(lineNumber));
+                                throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + filepath + "', line number: " + std::to_string(lineNumber));
                             }
                         }
                             // Using current working directory.
                         else if (beginning == '"' && end == '"') {
                             try {
-                                file << ReadFile(filename);
+                                file << ProcessFile(filename);
                             }
                                 // Include callstack.
                             catch (std::runtime_error& exception) {
-                                throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + filePath + "', line number: " + std::to_string(lineNumber));
+                                throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + filepath + "', line number: " + std::to_string(lineNumber));
                             }
                         }
                         else {
-                            ThrowFormattedError(filePath, line, lineNumberString, "Formatting mismatch. Expected <filename> or \"filename\'.", 9);
+                            ThrowFormattedError(filepath, line, lineNumberString, "Formatting mismatch. Expected <filename> or \"filename\'.", 9);
                         }
                     }
                 }
@@ -386,7 +385,7 @@ namespace GLSL {
 
                 // Ensure filename is the same as the current processed filename.
                 // This file has been included the maximum one time in this shader unit.
-                if (pragmaData.first == filePath) {
+                if (pragmaData.first == filepath) {
                     _parseData._processingExistingInclude = false;
                     _parseData._pragmaStack.pop();
                 }
@@ -398,7 +397,7 @@ namespace GLSL {
         }
         else {
             // Could not open file
-            throw std::runtime_error("Could not open shader file: '" + filePath + "'");
+            throw std::runtime_error("Could not open shader file: '" + filepath + "'");
         }
     }
 
@@ -607,6 +606,10 @@ namespace GLSL {
                                            _endifLineNumber(-1) {
     }
 
+    Shader::ParsedShaderData::ParsedShaderData() : _hasVersionInformation(false),
+                                                   _processingExistingInclude(false) {
+    }
+
     void Shader::ParsedShaderData::Clear() {
         _includeGuards.clear();
         _includeGuardInstances.clear();
@@ -620,4 +623,6 @@ namespace GLSL {
         _hasVersionInformation = false;
         _processingExistingInclude = false;
     }
+
+
 }

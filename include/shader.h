@@ -14,7 +14,7 @@ namespace GLSL {
 
     class Shader {
         public:
-            Shader(std::string name, const std::initializer_list<std::string>& shaderComponentPaths);
+            Shader(std::string shaderName, const std::initializer_list<std::string>& shaderComponentPaths);
             ~Shader();
 
             void Bind() const;
@@ -40,6 +40,7 @@ namespace GLSL {
             };
 
             struct ParsedShaderData {
+                ParsedShaderData();
                 void Clear();
 
                 std::vector<std::string> _shaderComponentPaths;
@@ -48,15 +49,23 @@ namespace GLSL {
                 std::set<std::string> _includeGuardInstances;
 
                 std::set<std::string> _pragmaInstances;
-                std::stack<std::pair<std::string, int>> _pragmaStack; // Contains pragma name (filename) and line number it appears on.
+                std::stack<std::pair<std::string, int>> _pragmaStack; // Contains pragma filename and line number it appears on.
 
                 bool _hasVersionInformation;
                 bool _processingExistingInclude;
             };
 
-            std::string ReadFile(const std::string& filePath);
+            // Processes input files to shader. Returns mapping of shader filepath to a pairing between the shader type and processed shader source.
             std::unordered_map<std::string, std::pair<GLenum, std::string>> GetShaderSources();
+
+            // Handles shader include guards and pragmas.
+            std::string ProcessFile(const std::string& filepath);
+
+            // Compiles and links shader components into shader program. Throws std::runtime_error on error.
             void CompileShader(const std::unordered_map<std::string, std::pair<GLenum, std::string>>& shaderComponents);
+
+            // Compiles shader component (vertex, fragment, etc.). Throws std::runtime_error on error.
+            // Returns ID of compiled shader.
             GLuint CompileShaderComponent(const std::pair<std::string, std::pair<GLenum, std::string>>& shaderComponent);
 
             std::string ShaderTypeToString(GLenum shaderType) const;
