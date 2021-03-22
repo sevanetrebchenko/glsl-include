@@ -58,12 +58,12 @@ namespace GLSL {
                 for (IncludeGuard& includeGuard : _parseData._includeGuards) {
                     // Found unterminated include guard.
                     if (includeGuard._endifLineNumber == -1) {
-                        ThrowFormattedError(filepath, includeGuard._includeGuardLine, std::to_string(includeGuard._includeGuardLineNumber), "Unterminated #ifndef directive.", 0);
+                        ThrowFormattedError(includeGuard._includeGuardFile, includeGuard._includeGuardLine, std::to_string(includeGuard._includeGuardLineNumber), "Unterminated #ifndef directive.", 0);
                     }
                 }
 
-                _parseData._hasVersionInformation = false;
-                _parseData._processingExistingInclude = false;
+                // Clear parsing information for new shader component.
+                _parseData.Clear();
             }
             else {
                 throw std::runtime_error("Could not find shader extension on file: \"" + filepath + "\"");
@@ -73,9 +73,10 @@ namespace GLSL {
         return std::move(shaderComponents);
     }
 
-//    void Shader::Recompile() {
-//        CompileShader(GetShaderSources());
-//    }
+    void Shader::Recompile() {
+        _parseData.Clear();
+        CompileShader(GetShaderSources());
+    }
 
     void Shader::CompileShader(const std::unordered_map<std::string, std::pair<GLenum, std::string>> &shaderComponents) {
         GLuint shaderProgram = glCreateProgram();
@@ -240,6 +241,7 @@ namespace GLSL {
                         _parseData._includeGuards.emplace_back();
 
                         IncludeGuard& includeGuard = _parseData._includeGuards.back();
+                        includeGuard._includeGuardFile = filePath;
                         includeGuard._includeGuardName = includeGuardName;
                         includeGuard._includeGuardLine = line;
                         includeGuard._includeGuardLineNumber = lineNumber;
@@ -300,7 +302,7 @@ namespace GLSL {
                     else {
                         // Get the last include guard without a set #endif line number (last unterminated include guard).
                         bool found = false;
-                        for (auto includeGuardIt = _parseData._includeGuards.end() - 1; includeGuardIt != _parseData._includeGuards.begin(); --includeGuardIt) {
+                        for (auto includeGuardIt = _parseData._includeGuards.rbegin(); includeGuardIt != _parseData._includeGuards.rend(); ++includeGuardIt) {
                             IncludeGuard& includeGuard = *includeGuardIt;
 
                             if (includeGuard._endifLineNumber == -1) {
@@ -603,5 +605,19 @@ namespace GLSL {
                                            _includeGuardLineNumber(-1),
                                            _defineLineNumber(-1),
                                            _endifLineNumber(-1) {
+    }
+
+    void Shader::ParsedShaderData::Clear() {
+        _includeGuards.clear();
+        _includeGuardInstances.clear();
+
+        _pragmaInstances.clear();
+
+        while (!_pragmaStack.empty()) {
+            _pragmaStack.pop();
+        }
+
+        _hasVersionInformation = false;
+        _processingExistingInclude = false;
     }
 }

@@ -20,7 +20,7 @@ namespace GLSL {
             void Bind() const;
             void Unbind() const;
 
-//            void Recompile();
+            void Recompile();
 
             [[nodiscard]] const std::string& GetName() const;
 
@@ -31,6 +31,7 @@ namespace GLSL {
             struct IncludeGuard {
                 IncludeGuard();
 
+                std::string _includeGuardFile;
                 std::string _includeGuardName;
                 std::string _includeGuardLine;
                 int _includeGuardLineNumber;
@@ -39,6 +40,8 @@ namespace GLSL {
             };
 
             struct ParsedShaderData {
+                void Clear();
+
                 std::vector<std::string> _shaderComponentPaths;
 
                 std::vector<IncludeGuard> _includeGuards;

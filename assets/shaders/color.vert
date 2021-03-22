@@ -1,5 +1,6 @@
 
 #ifndef HELLO
+#define HELLO
 
 //#pragma
 
@@ -19,5 +20,5 @@ void main() {
 }
 
 
-//#endif //COLOR_VERT
+#endif //COLOR_VERT
 
