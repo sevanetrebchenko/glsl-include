@@ -1,13 +1,13 @@
 
-#ifndef /*JE::P*/ HELLO
-//#define COLOR_VERT
+#ifndef HELLO
 
 //#pragma
 
 #version 450 core
+#define EE
+
 //
-//#include "assets/shaders/color.vert"
-//#include "assets/shaders/helper.glsl"
+#include "assets/shaders/helper.glsl"
 
 layout (location = 0) in vec3 vertexPosition;
 

@@ -28,11 +28,21 @@ namespace GLSL {
             void SetUniform(const std::string& uniformName, DataType value);
 
         private:
+            struct IncludeGuard {
+                IncludeGuard();
+
+                std::string _includeGuardName;
+                std::string _includeGuardLine;
+                int _includeGuardLineNumber;
+                int _defineLineNumber;
+                int _endifLineNumber;
+            };
+
             struct ParsedShaderData {
                 std::vector<std::string> _shaderComponentPaths;
 
+                std::vector<IncludeGuard> _includeGuards;
                 std::set<std::string> _includeGuardInstances;
-                std::stack<std::pair<std::string, int>> _includeGuardStack; // Contains include guard name and line number it appears on.
 
                 std::set<std::string> _pragmaInstances;
                 std::stack<std::pair<std::string, int>> _pragmaStack; // Contains pragma name (filename) and line number it appears on.
@@ -42,7 +52,6 @@ namespace GLSL {
             };
 
             std::string ReadFile(const std::string& filePath);
-            std::string CondenseFile(std::string file) const;
             std::unordered_map<std::string, std::pair<GLenum, std::string>> GetShaderSources();
             void CompileShader(const std::unordered_map<std::string, std::pair<GLenum, std::string>>& shaderComponents);
             GLuint CompileShaderComponent(const std::pair<std::string, std::pair<GLenum, std::string>>& shaderComponent);
@@ -50,11 +59,17 @@ namespace GLSL {
             std::string ShaderTypeToString(GLenum shaderType) const;
             GLenum ShaderTypeFromString(const std::string& shaderExtension);
 
+            std::string GetLine(std::ifstream& stream) const;
             void EraseComments(std::string& line) const;
-            void EraseNewlines(std::string& line) const;
+            void EraseNewlines(std::string &line, bool eraseLast) const;
+
+            std::string ConstructOutputDirectory() const;
+            std::string GetShaderFilename(const std::string& filepath) const;
 
             template <typename DataType>
             void SetUniformData(GLuint uniformLocation, DataType value);
+
+            void ThrowFormattedError(std::string filename, std::string line, std::string lineNumber, std::string errorMessage, int locationOffset) const;
 
             // Shader data.
             std::unordered_map<std::string, GLint> _uniformLocations;
