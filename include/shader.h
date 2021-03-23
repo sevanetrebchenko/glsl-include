@@ -24,6 +24,8 @@ namespace GLSL {
             void Unbind() const;
 
             void Recompile();
+
+            // Add directory that will be checked when parsing #include statements in GLSL shader code.
             static void AddIncludeDirectory(std::string includeDirectory);
 
             [[nodiscard]] const std::string& GetName() const;
@@ -55,14 +57,27 @@ namespace GLSL {
 
                     std::string GetLine(std::ifstream& stream) const;
 
+                    // Parsing #pragma pre-processor directive.
                     void PragmaDirective(const std::string &currentFile, const std::string& line, int lineNumber, const std::string& pragmaArgument);
+
+                    // Parsing #ifndef pre-processor directive.
                     void OpenIncludeGuard(const std::string &currentFile, const std::string &line, int lineNumber, const std::string& includeGuardName);
+
+                    // Parsing #define pre-processor directive.
                     bool DefineDirective(const std::string &currentFile, const std::string &line, int lineNumber, const std::string& defineName);
+
+                    // Parsing #endif pre-processor directive.
                     void CloseIncludeGuard(const std::string &currentFile, const std::string &line, int lineNumber, const std::string& includeGuardName);
+
+                    // Parsing #include pre-processor directive.
                     std::string IncludeFile(const std::string &currentFile, const std::string& line, int lineNumber, const std::string& fileToInclude);
 
-                    bool ValidateAgainst(const std::string& directiveName, const std::string& token) const;
+                    [[nodiscard]] bool ValidateAgainst(const std::string& directiveName, const std::string& token) const;
 
+                    // Throws error in the following format:
+                    // In file '[filename]' on line [lineNumber]: error: [errorMessage]
+                    // 5 |    [line]
+                    //   |    [ locationOffset ]^
                     void ThrowFormattedError(std::string filename, std::string line, int lineNumber, std::string errorMessage, int locationOffset) const;
 
                     // Include guards.
@@ -77,7 +92,6 @@ namespace GLSL {
                     bool _processingExistingInclude;
             };
 
-            // Shader data.
             template <typename DataType>
             void SetUniformData(GLuint uniformLocation, DataType value);
 
@@ -110,6 +124,5 @@ namespace GLSL {
 }
 
 #include <shader.tpp>
-
 
 #endif //GLSL_INCLUDE_SHADER_H

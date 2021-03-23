@@ -546,7 +546,8 @@ namespace GLSL {
     }
 
     bool Shader::Parser::ValidateAgainst(const std::string &directiveName, const std::string& token) const {
-        bool condition = directiveName.empty() || directiveName == token || token.front() == '#';
+        // Token cannot be empty, the same as the pre-processor directive (happens when token is empty), or be another pre-processor directive.
+        bool condition = token.empty() || directiveName == token || token.front() == '#';
 
         if (directiveName == "#pragma") {
             condition |= token != "once";
