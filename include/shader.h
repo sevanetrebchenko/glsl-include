@@ -24,6 +24,7 @@ namespace GLSL {
             void Unbind() const;
 
             void Recompile();
+            static void AddIncludeDirectory(std::string includeDirectory);
 
             [[nodiscard]] const std::string& GetName() const;
 
@@ -60,6 +61,8 @@ namespace GLSL {
                     void CloseIncludeGuard(const std::string &currentFile, const std::string &line, int lineNumber, const std::string& includeGuardName);
                     std::string IncludeFile(const std::string &currentFile, const std::string& line, int lineNumber, const std::string& fileToInclude);
 
+                    bool ValidateAgainst(const std::string& directiveName, const std::string& token) const;
+
                     void ThrowFormattedError(std::string filename, std::string line, int lineNumber, std::string errorMessage, int locationOffset) const;
 
                     // Include guards.
@@ -94,6 +97,8 @@ namespace GLSL {
 
             std::string ShaderTypeToString(GLenum shaderType) const;
             GLenum ShaderTypeFromString(const std::string& shaderExtension);
+
+            static std::vector<std::string> _includeDirectories;
 
             std::unordered_map<std::string, GLint> _uniformLocations;
             GLuint _shaderID;

@@ -1,12 +1,18 @@
 
 #include <shader.h>
+#include <util.h>
+
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
-#include <util.h>
+#include <utility>
+#include <filesystem>
 
 namespace GLSL {
+
+    // Static initialization.
+    std::vector<std::string> Shader::_includeDirectories { };
 
     Shader::Shader(std::string name, const std::initializer_list<std::string>& shaderComponentPaths) : _shaderName(std::move(name)),
                                                                                                        _shaderID(-1),
@@ -210,6 +216,21 @@ namespace GLSL {
         outputStream.close();
     }
 
+    void Shader::AddIncludeDirectory(std::string includeDirectory) {
+        char slash = includeDirectory.back();
+
+        // Make sure directory is terminated with a slash.
+        if (slash != '\\' && slash != '/') {
+            #ifdef _WIN32
+                includeDirectory += '\\';
+            #else
+                includeDirectory += '/';
+            #endif
+        }
+
+        _includeDirectories.emplace_back(includeDirectory);
+    }
+
     Shader::Parser::Parser() : _hasVersionInformation(false),
                                _processingExistingInclude(false) {
     }
@@ -338,7 +359,7 @@ namespace GLSL {
 
     std::string Shader::Parser::IncludeFile(const std::string &currentFile, const std::string& line, int lineNumber, const std::string& fileToInclude) {
         if (!_processingExistingInclude) {
-            if (fileToInclude.empty()) {
+            if (ValidateAgainst("#include", fileToInclude)) {
                 ThrowFormattedError(currentFile, line, lineNumber, "Empty #include pre-processor directive. Expected <filename> or \"filename\".", 9);
             }
 
@@ -348,15 +369,23 @@ namespace GLSL {
 
             // Using system pre-designated include directory and any custom project include directories.
             if (beginning == '<' && end == '>') {
-                std::string fileLocation = std::string(INCLUDE_DIRECTORY) + filename;
+                for (const std::string& directory : _includeDirectories) {
+                    std::string fileLocation = directory + filename;
 
-                try {
-                    return ProcessFile(fileLocation);
+                    // File exists.
+                    if (std::filesystem::is_regular_file(fileLocation)) {
+                        try {
+                            return ProcessFile(fileLocation);
+                        }
+                            // Include callstack.
+                        catch (std::runtime_error& exception) {
+                            throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + currentFile + "', line number: " + std::to_string(lineNumber));
+                        }
+                    }
                 }
-                    // Include callstack.
-                catch (std::runtime_error& exception) {
-                    throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + currentFile + "', line number: " + std::to_string(lineNumber));
-                }
+
+                // File was not found in any of the provided include directories.
+                ThrowFormattedError(currentFile, line, lineNumber, "File '" + filename + "' was not found in the provided include directories.", 9);
             }
                 // Using current working directory.
             else if (beginning == '"' && end == '"') {
@@ -378,7 +407,7 @@ namespace GLSL {
     }
 
     void Shader::Parser::PragmaDirective(const std::string &currentFile, const std::string &line, int lineNumber, const std::string& pragmaArgument) {
-        if (pragmaArgument.empty() || pragmaArgument != "once") { // Comparison to once covers if there is no token after the initial #pragma (token will be #pragma).
+        if (ValidateAgainst("#pragma", pragmaArgument)) {
             ThrowFormattedError(currentFile, line, lineNumber, "#pragma pre-processing directive must be followed by 'once'.", 8);
         }
 
@@ -395,7 +424,7 @@ namespace GLSL {
 
     void Shader::Parser::OpenIncludeGuard(const std::string &currentFile, const std::string &line, int lineNumber, const std::string &includeGuardName) {
         // #ifndef needs macro as name, otherwise throw an error.
-        if (includeGuardName.empty() || includeGuardName == "#ifndef") { // Include guard token is #ifndef when there is no token after the original #ifndef.
+        if (ValidateAgainst("#ifndef", includeGuardName)) { // Include guard token is #ifndef when there is no token after the original #ifndef.
             ThrowFormattedError(currentFile, line, lineNumber, "Empty #ifndef pre-processor directive. Expected macro name.", 8);
         }
 
@@ -427,7 +456,7 @@ namespace GLSL {
 
     bool Shader::Parser::DefineDirective(const std::string &currentFile, const std::string &line, int lineNumber, const std::string &defineName) {
         if (!_processingExistingInclude) {
-            if (defineName.empty() || defineName == "#define") { // Define token is #define when there is no token after the original #define.
+            if (ValidateAgainst("#define", defineName)) {
                 ThrowFormattedError(currentFile, line, lineNumber, "Empty #define pre-processor directive. Expected identifier.", 8);
             }
 
@@ -516,4 +545,15 @@ namespace GLSL {
         }
     }
 
+    bool Shader::Parser::ValidateAgainst(const std::string &directiveName, const std::string& token) const {
+        bool condition = directiveName.empty() || directiveName == token || token.front() == '#';
+
+        if (directiveName == "#pragma") {
+            condition |= token != "once";
+        }
+
+        return condition;
+    }
+
 }
+

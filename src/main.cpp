@@ -8,6 +8,8 @@
 #include <shader.h>
 
 int main() {
+    GLSL::Shader::AddIncludeDirectory(GLSL_INCLUDE_DIRECTORY);
+
     // Initialize GLFW.
     int initializationCode = glfwInit();
 

@@ -1,13 +1,12 @@
 
-#ifndef //COLOR_VERT
-//#define HELLO
+#ifndef COLOR_VERT
+#define COLOR_VERT
 
-//#pragma
+#pragma once
 
 #version 450 core
-#define EE
 
-//
+#include <blinn_phong.frag>
 #include "assets/shaders/helper.glsl"
 
 layout (location = 0) in vec3 vertexPosition;

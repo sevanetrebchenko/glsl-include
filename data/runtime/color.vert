@@ -1,5 +1,4 @@
 #version 450 core
-#define EE
 layout (location = 0) in vec3 vertexPosition;
 uniform mat4 modelTransform;
 uniform mat4 cameraTransform;
