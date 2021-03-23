@@ -2,8 +2,6 @@
 #include <shader.h>
 #include <algorithm>
 #include <stdexcept>
-#include <sstream>
-#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <util.h>
@@ -265,10 +263,8 @@ namespace GLSL {
                 // Define (macro or include guard).
                 else if (token == "#define") {
                     // Get define name.
-                    std::string defineName;
-                    parser >> defineName;
-
-                    bool regularDefine = DefineDirective(filepath, line, lineNumber, defineName);
+                    parser >> token;
+                    bool regularDefine = DefineDirective(filepath, line, lineNumber, token);
 
                     // Define does not belong to an include guard, include in final shader file.
                     if (regularDefine) {
@@ -335,6 +331,7 @@ namespace GLSL {
         std::getline(stream, line);
         line += '\n'; // getline consumes the newline.
         EraseComments(line);
+        EraseNewlines(line, true);
 
         return std::move(line);
     }
@@ -381,7 +378,7 @@ namespace GLSL {
     }
 
     void Shader::Parser::PragmaDirective(const std::string &currentFile, const std::string &line, int lineNumber, const std::string& pragmaArgument) {
-        if (pragmaArgument.empty() || pragmaArgument != "once") {
+        if (pragmaArgument.empty() || pragmaArgument != "once") { // Comparison to once covers if there is no token after the initial #pragma (token will be #pragma).
             ThrowFormattedError(currentFile, line, lineNumber, "#pragma pre-processing directive must be followed by 'once'.", 8);
         }
 
@@ -398,7 +395,7 @@ namespace GLSL {
 
     void Shader::Parser::OpenIncludeGuard(const std::string &currentFile, const std::string &line, int lineNumber, const std::string &includeGuardName) {
         // #ifndef needs macro as name, otherwise throw an error.
-        if (includeGuardName.empty()) {
+        if (includeGuardName.empty() || includeGuardName == "#ifndef") { // Include guard token is #ifndef when there is no token after the original #ifndef.
             ThrowFormattedError(currentFile, line, lineNumber, "Empty #ifndef pre-processor directive. Expected macro name.", 8);
         }
 
@@ -430,7 +427,7 @@ namespace GLSL {
 
     bool Shader::Parser::DefineDirective(const std::string &currentFile, const std::string &line, int lineNumber, const std::string &defineName) {
         if (!_processingExistingInclude) {
-            if (defineName.empty()) {
+            if (defineName.empty() || defineName == "#define") { // Define token is #define when there is no token after the original #define.
                 ThrowFormattedError(currentFile, line, lineNumber, "Empty #define pre-processor directive. Expected identifier.", 8);
             }
 
@@ -443,6 +440,9 @@ namespace GLSL {
                         return false;
                     }
                 }
+
+                // This should never happen due to include setup, but throw for safeguard reasons.
+                ThrowFormattedError(currentFile, line, lineNumber, "Incorrectly setting up include guard mapping.", 0);
             }
             else {
                 // Regular define.

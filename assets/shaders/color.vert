@@ -1,6 +1,6 @@
 
-#ifndef HELLO
-#define HELLO
+#ifndef //COLOR_VERT
+//#define HELLO
 
 //#pragma
 
