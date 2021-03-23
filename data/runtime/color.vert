@@ -1,7 +1,5 @@
 #version 450 core
 #define EE
-void TestHelperFunction() {
-}
 layout (location = 0) in vec3 vertexPosition;
 uniform mat4 modelTransform;
 uniform mat4 cameraTransform;

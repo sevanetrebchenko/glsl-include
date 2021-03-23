@@ -2,6 +2,7 @@
 set(CORE_SOURCE_FILES
         "${PROJECT_SOURCE_DIR}/src/main.cpp"
         "${PROJECT_SOURCE_DIR}/src/shader.cpp"
+        "${PROJECT_SOURCE_DIR}/src/util.cpp"
     )
 
 add_executable(glsl-include ${CORE_SOURCE_FILES})

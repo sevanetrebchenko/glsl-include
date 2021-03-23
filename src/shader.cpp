@@ -6,25 +6,22 @@
 #include <fstream>
 #include <iostream>
 #include <iomanip>
-#include <filesystem>
+#include <util.h>
 
 namespace GLSL {
 
     Shader::Shader(std::string name, const std::initializer_list<std::string>& shaderComponentPaths) : _shaderName(std::move(name)),
-                                                                                                       _shaderID(-1) {
-        _parseData._shaderComponentPaths = shaderComponentPaths;
-        _parseData._hasVersionInformation = false;
-        _parseData._processingExistingInclude = false;
-
+                                                                                                       _shaderID(-1),
+                                                                                                       _shaderComponentPaths(shaderComponentPaths) {
         CompileShader(GetShaderSources());
     }
 
     std::unordered_map<std::string, std::pair<GLenum, std::string>> Shader::GetShaderSources() {
-        std::string outputDirectory = ConstructOutputDirectory();
+        std::string outputDirectory = CreateDirectory(std::string(OUTPUT_DIRECTORY));
         std::unordered_map<std::string, std::pair<GLenum, std::string>> shaderComponents;
 
         // Get shader types.
-        std::for_each(_parseData._shaderComponentPaths.begin(), _parseData._shaderComponentPaths.end(), [&](const std::string& filepath) {
+        std::for_each(_shaderComponentPaths.begin(), _shaderComponentPaths.end(), [&](const std::string& filepath) {
             std::size_t dotPosition = filepath.find_last_of('.');
 
             // Found extension.
@@ -37,33 +34,12 @@ namespace GLSL {
                 }
 
                 std::string shaderFile = ProcessFile(filepath);
-                EraseNewlines(shaderFile, false); // Keep last newline to finish file with newline.
 
-                // Write parsed shader to output directory only if it exists.
                 #ifdef OUTPUT_DIRECTORY
-                    std::ofstream outputStream;
-
-                    // Get only the shader name from the full filepath.
-                    std::string assetName = GetShaderFilename(filepath);
-
-                    // Create file.
-                    outputStream.open(outputDirectory + assetName);
-                    outputStream << shaderFile;
-                    outputStream.close();
+                    WriteToOutputDirectory(outputDirectory, filepath, shaderFile);
                 #endif
 
                 shaderComponents.emplace(filepath, std::make_pair(shaderType, shaderFile));
-
-                // Check for unterminated include guards.
-                for (IncludeGuard& includeGuard : _parseData._includeGuards) {
-                    // Found unterminated include guard.
-                    if (includeGuard._endifLineNumber == -1) {
-                        ThrowFormattedError(includeGuard._includeGuardFile, includeGuard._includeGuardLine, std::to_string(includeGuard._includeGuardLineNumber), "Unterminated #ifndef directive.", 0);
-                    }
-                }
-
-                // Clear parsing information for new shader component.
-                _parseData.Clear();
             }
             else {
                 throw std::runtime_error("Could not find shader extension on file: \"" + filepath + "\"");
@@ -74,7 +50,6 @@ namespace GLSL {
     }
 
     void Shader::Recompile() {
-        _parseData.Clear();
         CompileShader(GetShaderSources());
     }
 
@@ -186,219 +161,13 @@ namespace GLSL {
     }
 
     std::string Shader::ProcessFile(const std::string &filepath) {
-        std::ifstream fileReader;
+        Parser parser;
 
-        // Open the file.
-        fileReader.open(filepath);
-        if (fileReader.is_open()) {
-            std::stringstream file;
-            int lineNumber = 1;
+        std::string processedShaderSource = parser.ProcessFile(filepath);
+        EraseNewlines(processedShaderSource, false);
+        parser.ValidateIncludeGuardScope();
 
-            // Process file.
-            while (!fileReader.eof()) {
-                std::string line = GetLine(fileReader);
-                std::string lineNumberString = std::to_string(lineNumber);
-
-                // Stringstream for parsing the line.
-                std::stringstream parser(line);
-                std::string token;
-                parser >> token;
-
-                // Pragma once.
-                if (token == "#pragma") {
-                    // Ensure following token is 'once' (only pragma that is supported).
-                    parser >> token;
-                    if (token.empty() || token != "once") {
-                        ThrowFormattedError(filepath, line, lineNumberString, "#pragma pre-processing directive must be followed by 'once'.", 8);
-                    }
-
-                    // Track this file for it to be only be included once.
-                    if (_parseData._pragmaInstances.find(filepath) == _parseData._pragmaInstances.end()) {
-                        _parseData._pragmaInstances.insert(filepath);
-                        _parseData._pragmaStack.push(std::make_pair(filepath, lineNumber));
-                    }
-                    else {
-                        // File has already been included.
-                        _parseData._processingExistingInclude = true;
-                    }
-                }
-
-                // Include guard.
-                else if (token == "#ifndef") {
-                    std::string includeGuardName;
-                    parser >> includeGuardName;
-
-                    // #ifndef needs macro as name, otherwise throw an error.
-                    if (includeGuardName.empty()) {
-                        ThrowFormattedError(filepath, line, lineNumberString, "Empty #ifndef pre-processor directive. Expected macro name.", 8);
-                    }
-
-                    // Make sure include guard was not already found.
-                    auto includeGuardIt = _parseData._includeGuardInstances.find(includeGuardName);
-                    if (includeGuardIt == _parseData._includeGuardInstances.end()) {
-                        // New include guard.
-                        _parseData._includeGuards.emplace_back();
-
-                        IncludeGuard& includeGuard = _parseData._includeGuards.back();
-                        includeGuard._includeGuardFile = filepath;
-                        includeGuard._includeGuardName = includeGuardName;
-                        includeGuard._includeGuardLine = line;
-                        includeGuard._includeGuardLineNumber = lineNumber;
-
-                        // Start tracking new include guard.
-                        _parseData._includeGuardInstances.emplace(includeGuardName);
-                    }
-                    else {
-                        // Check if existing #ifndef has the include guard defined.
-                        for (IncludeGuard& includeGuard : _parseData._includeGuards) {
-                            // include guard has associated #define, this has already been included.
-                            if (includeGuard._includeGuardName == includeGuardName && includeGuard._defineLineNumber != -1) {
-                                _parseData._processingExistingInclude = true;
-                            }
-                        }
-                    }
-                }
-
-                else if (token == "#define") {
-                    if (!_parseData._processingExistingInclude) {
-                        // Get define name.
-                        std::string defineName;
-                        parser >> defineName;
-
-                        if (defineName.empty()) {
-                            ThrowFormattedError(filepath, line, lineNumberString, "Empty #define pre-processor directive. Expected identifier.", 8);
-                        }
-
-                        auto includeGuardIt = _parseData._includeGuardInstances.find(defineName);
-                        if (includeGuardIt != _parseData._includeGuardInstances.end()) {
-
-                            // Set line on which define was found.
-                            for (IncludeGuard& includeGuard : _parseData._includeGuards) {
-                                if (includeGuard._includeGuardName == defineName) {
-                                    includeGuard._defineLineNumber = lineNumber;
-                                }
-                            }
-                        }
-                        else {
-                            // Regular define.
-                            if (_parseData._hasVersionInformation) {
-                                file << token << ' ' << defineName << std::endl;
-                            }
-                            // Shader version information must be the first compiled line of shader code.
-                            else {
-                                ThrowFormattedError(filepath, line, lineNumberString, "Version directive must be first statement and may not be repeated.", 0);
-                            }
-                        }
-                    }
-                }
-
-                // Clear #endif.
-                else if (token == "#endif") {
-                    // Reached the end of this include guard, safe to include file lines once again.
-                    if (_parseData._processingExistingInclude) {
-                        _parseData._processingExistingInclude = false;
-                    }
-                    else {
-                        // Get the last include guard without a set #endif line number (last unterminated include guard).
-                        bool found = false;
-                        for (auto includeGuardIt = _parseData._includeGuards.rbegin(); includeGuardIt != _parseData._includeGuards.rend(); ++includeGuardIt) {
-                            IncludeGuard& includeGuard = *includeGuardIt;
-
-                            if (includeGuard._endifLineNumber == -1) {
-                                found = true;
-                                includeGuard._endifLineNumber = lineNumber;
-                                break;
-                            }
-                        }
-
-                        // If the include guard stack is empty, an endif was pushed without an existing #if / #ifndef.
-                        if (!found) {
-                            ThrowFormattedError(filepath, line, lineNumberString, "#endif pre-processor directive without preexisting #if / #ifndef directive.", 0);
-                        }
-                    }
-                }
-
-                // Found shader version number, version number is the only thing on this line.
-                else if (token == "#version") {
-                    // Skip additional shader versions if they appear. First version is the version of the shader.
-                    if (!_parseData._hasVersionInformation) {
-                        file << line << std::endl;
-                        _parseData._hasVersionInformation = true;
-                    }
-                }
-
-                // Found include, include is the only thing that should be on this line.
-                else if (token == "#include") {
-                    if (!_parseData._processingExistingInclude) {
-                        // Get filename to include.
-                        std::string includeName;
-                        parser >> includeName;
-
-                        if (includeName.empty()) {
-                            ThrowFormattedError(filepath, line, lineNumberString, "Empty #include pre-processor directive. Expected <filename> or \"filename\".", 9);
-                        }
-
-                        char beginning = includeName.front();
-                        char end = includeName.back();
-                        std::string filename = includeName.substr(1, includeName.size() - 2);
-
-                        // Using system pre-designated include directory and any custom project include directories.
-                        if (beginning == '<' && end == '>') {
-                            std::string fileLocation = std::string(INCLUDE_DIRECTORY) + filename;
-
-                            try {
-                                file << ProcessFile(fileLocation);
-                            }
-                                // Include callstack.
-                            catch (std::runtime_error& exception) {
-                                throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + filepath + "', line number: " + std::to_string(lineNumber));
-                            }
-                        }
-                            // Using current working directory.
-                        else if (beginning == '"' && end == '"') {
-                            try {
-                                file << ProcessFile(filename);
-                            }
-                                // Include callstack.
-                            catch (std::runtime_error& exception) {
-                                throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + filepath + "', line number: " + std::to_string(lineNumber));
-                            }
-                        }
-                        else {
-                            ThrowFormattedError(filepath, line, lineNumberString, "Formatting mismatch. Expected <filename> or \"filename\'.", 9);
-                        }
-                    }
-                }
-                else {
-                    // Normal shader line, emplace entire line.
-                    if (!_parseData._processingExistingInclude && _parseData._hasVersionInformation) {
-                        file << line << std::endl; // Need to manually emplace newline.
-                    }
-                }
-
-                ++lineNumber;
-            }
-
-            // #pragma one preprocessor directive pushes filename.
-            if (_parseData._processingExistingInclude) {
-                const std::pair<std::string, int>& pragmaData = _parseData._pragmaStack.top();
-
-                // Ensure filename is the same as the current processed filename.
-                // This file has been included the maximum one time in this shader unit.
-                if (pragmaData.first == filepath) {
-                    _parseData._processingExistingInclude = false;
-                    _parseData._pragmaStack.pop();
-                }
-
-                // Otherwise, pragma is kept and will be processed as an error later.
-            }
-
-            return file.str();
-        }
-        else {
-            // Could not open file
-            throw std::runtime_error("Could not open shader file: '" + filepath + "'");
-        }
+        return std::move(processedShaderSource);
     }
 
     GLenum Shader::ShaderTypeFromString(const std::string &shaderExtension) {
@@ -431,186 +200,23 @@ namespace GLSL {
         return _shaderName;
     }
 
-    void Shader::EraseComments(std::string &line) const {
-        std::size_t previousItPosition = 0;
-        bool previousIsSlash = false;
+    void Shader::WriteToOutputDirectory(const std::string& outputDirectory, const std::string& filepath, const std::string& shaderFile) const {
+        std::ofstream outputStream;
 
-        while (previousItPosition != line.size()) {
-            for (auto it = line.begin() + previousItPosition; it != line.end(); ++it, ++previousItPosition) {
-                char character = *it;
+        // Get only the shader name from the full filepath.
+        std::string assetName = GetAssetName(filepath);
 
-                // Full-line comment processing.
-                if (character == '/') {
-                    if (previousIsSlash) {
-                        std::size_t commentStart = previousItPosition - 1;
-                        std::size_t commentEnd = previousItPosition;
-
-                        while (line[commentEnd] != '\n') {
-                            ++commentEnd;
-                        }
-
-                        line.erase(line.begin() + commentStart, line.begin() + commentEnd);
-
-                        previousItPosition -= 1; // Reset iterator position to where the comment started.
-                        previousIsSlash = false;
-                        break;
-                    }
-                    else {
-                        previousIsSlash = true;
-                    }
-                }
-                // Inline comment processing.
-                else if (character == '*') {
-                    if (previousIsSlash) {
-                        std::size_t commentStart = previousItPosition - 1;
-                        std::size_t commentEnd = previousItPosition;
-
-                        // Find */ to determine comment ending.
-                        while (line[commentEnd] != '/' || line[commentEnd - 1] != '*') {
-                            ++commentEnd;
-                        }
-
-                        line.erase(line.begin() + commentStart, line.begin() + commentEnd + 1);
-                        previousItPosition -= 1; // Reset iterator position to where the comment started.
-                    }
-                }
-                else {
-                    previousIsSlash = false;
-                }
-            }
-        }
+        // Create file.
+        outputStream.open(outputDirectory + assetName);
+        outputStream << shaderFile;
+        outputStream.close();
     }
 
-    void Shader::EraseNewlines(std::string &line, bool eraseLast) const {
-        std::size_t previousItPosition = 0;
-        bool previousIsNL = false;
-
-        while (previousItPosition != line.size()) {
-            // Clear newline if line begins with one.
-            if (line.front() == '\n') {
-                line.erase(line.begin());
-                continue;
-            }
-
-            for (auto it = line.begin() + previousItPosition; it != line.end(); ++it, ++previousItPosition) {
-                char character = *it;
-
-                // Newline processing.
-                if (character == '\n') {
-                    // Remove duplicate newlines.
-                    if (previousIsNL) {
-                        line.erase(it);
-                        break;
-                    }
-                    else {
-                        previousIsNL = true;
-                    }
-                }
-                else {
-                    previousIsNL = false;
-                }
-            }
-        }
-
-        if (eraseLast) {
-            if (line.back() == '\n') {
-                line.erase(line.begin() + line.size() - 1);
-            }
-        }
+    Shader::Parser::Parser() : _hasVersionInformation(false),
+                               _processingExistingInclude(false) {
     }
 
-    std::string Shader::ConstructOutputDirectory() const {
-        std::string outputDirectory = std::string(OUTPUT_DIRECTORY);
-        char slash = outputDirectory.back();
-
-        if (slash != '\\' && slash != '/') {
-            #ifdef _WIN32
-                outputDirectory += '\\';
-            #else
-                outputDirectory += '/';
-            #endif
-        }
-
-        // Make output directory if it doesn't exist.
-        if (!std::filesystem::exists(outputDirectory)) {
-            std::filesystem::create_directories(outputDirectory);
-        }
-
-        return std::move(outputDirectory);
-    }
-
-    std::string Shader::GetShaderFilename(const std::string& filepath) const {
-        std::string assetName;
-
-        std::size_t winSlashPosition = filepath.find_last_of('\\');
-        std::size_t linSlashPosition = filepath.find_last_of('/');
-
-        if (winSlashPosition == std::string::npos) {
-            if (linSlashPosition == std::string::npos) {
-                // No slashes, filename is the asset name.
-                assetName = filepath;
-            }
-            else {
-                // No windows-style slashes, use linux-style.
-                assetName = filepath.substr(linSlashPosition + 1);
-            }
-        }
-        else {
-            if (linSlashPosition == std::string::npos) {
-                // No linux-style slashes, use windows-style.
-                assetName = filepath.substr(winSlashPosition + 1);
-            }
-            else {
-                // Both types of slashes, pick the furthest position.
-                assetName = filepath.substr(std::max(winSlashPosition, linSlashPosition) + 1);
-            }
-        }
-
-        return std::move(assetName);
-    }
-
-    std::string Shader::GetLine(std::ifstream &stream) const {
-        std::string line;
-
-        std::getline(stream, line);
-        line += '\n'; // getline consumes the newline.
-        EraseComments(line);
-
-        return std::move(line);
-    }
-
-    void Shader::ThrowFormattedError(std::string filename, std::string line, std::string lineNumberString, std::string errorMessage, int locationOffset) const {
-        static std::stringstream errorMessageBuilder;
-        errorMessageBuilder.str(std::string()); // Clear.
-
-        // Clear all newlines.
-        EraseNewlines(filename, true);
-        EraseNewlines(line, true);
-        EraseNewlines(lineNumberString, true);
-        EraseNewlines(errorMessage, true);
-
-        errorMessageBuilder << "In file '" << filename << "' on line " << lineNumberString << ": error: " << errorMessage << std::endl;
-        errorMessageBuilder << std::setw(4) << lineNumberString << " |    " << line << std::endl;
-        errorMessageBuilder << std::setw(4) << ' ' << " |    ";
-        if (locationOffset > 0) {
-            errorMessageBuilder << std::setw(locationOffset) << ' ';
-        }
-        errorMessageBuilder << '^';
-
-        throw std::runtime_error(errorMessageBuilder.str());
-    }
-
-    Shader::IncludeGuard::IncludeGuard() : _includeGuardName(""),
-                                           _includeGuardLineNumber(-1),
-                                           _defineLineNumber(-1),
-                                           _endifLineNumber(-1) {
-    }
-
-    Shader::ParsedShaderData::ParsedShaderData() : _hasVersionInformation(false),
-                                                   _processingExistingInclude(false) {
-    }
-
-    void Shader::ParsedShaderData::Clear() {
+    Shader::Parser::~Parser() {
         _includeGuards.clear();
         _includeGuardInstances.clear();
 
@@ -624,5 +230,290 @@ namespace GLSL {
         _processingExistingInclude = false;
     }
 
+    std::string Shader::Parser::ProcessFile(const std::string &filepath) {
+        std::ifstream fileReader;
+
+        // Open the file.
+        fileReader.open(filepath);
+        if (fileReader.is_open()) {
+            std::stringstream file;
+            int lineNumber = 1;
+
+            // Process file.
+            while (!fileReader.eof()) {
+                std::string line = GetLine(fileReader);
+
+                // Stringstream for parsing the line.
+                std::stringstream parser(line);
+                std::string token;
+                parser >> token;
+
+                // Pragma.
+                if (token == "#pragma") {
+                    // Get token following #pragma directive.
+                    parser >> token;
+                    PragmaDirective(filepath, line, lineNumber, token);
+                }
+
+                // Open include guard.
+                else if (token == "#ifndef") {
+                    // Get include guard name.
+                    parser >> token;
+                    OpenIncludeGuard(filepath, line, lineNumber, token);
+                }
+
+                // Define (macro or include guard).
+                else if (token == "#define") {
+                    // Get define name.
+                    std::string defineName;
+                    parser >> defineName;
+
+                    bool regularDefine = DefineDirective(filepath, line, lineNumber, defineName);
+
+                    // Define does not belong to an include guard, include in final shader file.
+                    if (regularDefine) {
+                        file << line << std::endl;
+                    }
+                }
+
+                // Close include guard.
+                else if (token == "#endif") {
+                    parser >> token;
+                    CloseIncludeGuard(filepath, line, lineNumber, token);
+                }
+
+                // GLSL shader version.
+                else if (token == "#version") {
+                    // Skip additional shader versions if they appear. First version is the version of the shader.
+                    if (!_hasVersionInformation) {
+                        file << line << std::endl;
+                        _hasVersionInformation = true;
+                    }
+                }
+
+                // Include external file.
+                else if (token == "#include") {
+                    parser >> token; // Get filename to include;
+                    IncludeFile(filepath, line, lineNumber, token);
+                }
+
+                // Normal shader line, emplace entire line.
+                else {
+                    if (!_processingExistingInclude && _hasVersionInformation) {
+                        file << line << std::endl;
+                    }
+                }
+
+                ++lineNumber;
+            }
+
+            // #pragma one preprocessor directive pushes filename.
+            if (_processingExistingInclude) {
+                const std::pair<std::string, int>& pragmaData = _pragmaStack.top();
+
+                // Ensure filename is the same as the current processed filename.
+                // This file has been included the maximum one time in this shader unit.
+                if (pragmaData.first == filepath) {
+                    _processingExistingInclude = false;
+                    _pragmaStack.pop();
+                }
+
+                // Otherwise, pragma is kept and will be processed as an error later.
+            }
+
+            return file.str();
+        }
+        else {
+            // Could not open file
+            throw std::runtime_error("Could not open shader file: '" + filepath + "'");
+        }
+    }
+
+    std::string Shader::Parser::GetLine(std::ifstream &stream) const {
+        std::string line;
+
+        std::getline(stream, line);
+        line += '\n'; // getline consumes the newline.
+        EraseComments(line);
+
+        return std::move(line);
+    }
+
+    std::string Shader::Parser::IncludeFile(const std::string &currentFile, const std::string& line, int lineNumber, const std::string& fileToInclude) {
+        if (!_processingExistingInclude) {
+            if (fileToInclude.empty()) {
+                ThrowFormattedError(currentFile, line, lineNumber, "Empty #include pre-processor directive. Expected <filename> or \"filename\".", 9);
+            }
+
+            char beginning = fileToInclude.front();
+            char end = fileToInclude.back();
+            std::string filename = fileToInclude.substr(1, fileToInclude.size() - 2);
+
+            // Using system pre-designated include directory and any custom project include directories.
+            if (beginning == '<' && end == '>') {
+                std::string fileLocation = std::string(INCLUDE_DIRECTORY) + filename;
+
+                try {
+                    return ProcessFile(fileLocation);
+                }
+                    // Include callstack.
+                catch (std::runtime_error& exception) {
+                    throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + currentFile + "', line number: " + std::to_string(lineNumber));
+                }
+            }
+                // Using current working directory.
+            else if (beginning == '"' && end == '"') {
+                try {
+                    return ProcessFile(filename);
+                }
+                    // Include callstack.
+                catch (std::runtime_error& exception) {
+                    throw std::runtime_error(std::string(exception.what()) + '\n' + "Included from: '" + currentFile + "', line number: " + std::to_string(lineNumber));
+                }
+            }
+            else {
+                ThrowFormattedError(currentFile, line, lineNumber, "Formatting mismatch. Expected <filename> or \"filename\'.", 9);
+            }
+        }
+
+        // Encountered include while processing already included file, include nothing.
+        return "";
+    }
+
+    void Shader::Parser::PragmaDirective(const std::string &currentFile, const std::string &line, int lineNumber, const std::string& pragmaArgument) {
+        if (pragmaArgument.empty() || pragmaArgument != "once") {
+            ThrowFormattedError(currentFile, line, lineNumber, "#pragma pre-processing directive must be followed by 'once'.", 8);
+        }
+
+        // Track this file for it to be only be included once.
+        if (_pragmaInstances.find(currentFile) == _pragmaInstances.end()) {
+            _pragmaInstances.insert(currentFile);
+            _pragmaStack.push(std::make_pair(currentFile, lineNumber));
+        }
+        else {
+            // File has already been included.
+            _processingExistingInclude = true;
+        }
+    }
+
+    void Shader::Parser::OpenIncludeGuard(const std::string &currentFile, const std::string &line, int lineNumber, const std::string &includeGuardName) {
+        // #ifndef needs macro as name, otherwise throw an error.
+        if (includeGuardName.empty()) {
+            ThrowFormattedError(currentFile, line, lineNumber, "Empty #ifndef pre-processor directive. Expected macro name.", 8);
+        }
+
+        // Make sure include guard was not already found.
+        auto includeGuardIt = _includeGuardInstances.find(includeGuardName);
+        if (includeGuardIt == _includeGuardInstances.end()) {
+            // New include guard.
+            _includeGuards.emplace_back();
+
+            IncludeGuard& includeGuard = _includeGuards.back();
+            includeGuard._includeGuardFile = currentFile;
+            includeGuard._includeGuardName = includeGuardName;
+            includeGuard._includeGuardLine = line;
+            includeGuard._includeGuardLineNumber = lineNumber;
+
+            // Start tracking new include guard.
+            _includeGuardInstances.emplace(includeGuardName);
+        }
+        else {
+            // Check if existing #ifndef has the include guard defined.
+            for (IncludeGuard& includeGuard : _includeGuards) {
+                // include guard has associated #define, this has already been included.
+                if (includeGuard._includeGuardName == includeGuardName && includeGuard._defineLineNumber != -1) {
+                    _processingExistingInclude = true;
+                }
+            }
+        }
+    }
+
+    bool Shader::Parser::DefineDirective(const std::string &currentFile, const std::string &line, int lineNumber, const std::string &defineName) {
+        if (!_processingExistingInclude) {
+            if (defineName.empty()) {
+                ThrowFormattedError(currentFile, line, lineNumber, "Empty #define pre-processor directive. Expected identifier.", 8);
+            }
+
+            auto includeGuardIt = _includeGuardInstances.find(defineName);
+            if (includeGuardIt != _includeGuardInstances.end()) {
+                // Set line on which define was found.
+                for (IncludeGuard& includeGuard : _includeGuards) {
+                    if (includeGuard._includeGuardName == defineName) {
+                        includeGuard._defineLineNumber = lineNumber;
+                        return false;
+                    }
+                }
+            }
+            else {
+                // Regular define.
+                if (_hasVersionInformation) {
+                    return true;
+                }
+                    // Shader version information must be the first compiled line of shader code.
+                else {
+                    ThrowFormattedError(currentFile, line, lineNumber, "Version directive must be first statement and may not be repeated.", 0);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    void Shader::Parser::CloseIncludeGuard(const std::string &currentFile, const std::string &line, int lineNumber, const std::string &includeGuardName) {
+        // Reached the end of this include guard, safe to include file lines once again.
+        if (_processingExistingInclude) {
+            _processingExistingInclude = false;
+        }
+        else {
+            // Get the last include guard without a set #endif line number (last unterminated include guard).
+            bool found = false;
+            for (auto includeGuardIt = _includeGuards.rbegin(); includeGuardIt != _includeGuards.rend(); ++includeGuardIt) {
+                IncludeGuard& includeGuard = *includeGuardIt;
+
+                if (includeGuard._endifLineNumber == -1) {
+                    found = true;
+                    includeGuard._endifLineNumber = lineNumber;
+                    break;
+                }
+            }
+
+            // If the include guard stack is empty, an endif was pushed without an existing #if / #ifndef.
+            if (!found) {
+                ThrowFormattedError(currentFile, line, lineNumber, "#endif pre-processor directive without preexisting #if / #ifndef directive.", 0);
+            }
+        }
+    }
+
+    void Shader::Parser::ThrowFormattedError(std::string filename, std::string line, int lineNumber, std::string errorMessage, int locationOffset) const {
+        static std::stringstream errorMessageBuilder;
+        errorMessageBuilder.str(std::string()); // Clear.
+
+        // Clear all newlines.
+        EraseNewlines(filename, true);
+        EraseNewlines(line, true);
+        EraseNewlines(errorMessage, true);
+
+        std::string lineNumberString = std::to_string(lineNumber);
+
+        errorMessageBuilder << "In file '" << filename << "' on line " << lineNumberString << ": error: " << errorMessage << std::endl;
+        errorMessageBuilder << std::setw(4) << lineNumberString << " |    " << line << std::endl;
+        errorMessageBuilder << std::setw(4) << ' ' << " |    ";
+        if (locationOffset > 0) {
+            errorMessageBuilder << std::setw(locationOffset) << ' ';
+        }
+        errorMessageBuilder << '^';
+
+        throw std::runtime_error(errorMessageBuilder.str());
+    }
+
+    void Shader::Parser::ValidateIncludeGuardScope() const {
+        // Check for unterminated include guards.
+        for (const IncludeGuard& includeGuard : _includeGuards) {
+            // Found unterminated include guard.
+            if (includeGuard._endifLineNumber == -1) {
+                ThrowFormattedError(includeGuard._includeGuardFile, includeGuard._includeGuardLine, includeGuard._includeGuardLineNumber, "Unterminated #ifndef directive.", 0);
+            }
+        }
+    }
 
 }
